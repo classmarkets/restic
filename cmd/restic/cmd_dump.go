@@ -43,6 +43,8 @@ type DumpOptions struct {
 
 var dumpOptions DumpOptions
 
+var dumpWriter io.Writer = os.Stdout
+
 func init() {
 	cmdRoot.AddCommand(cmdDump)
 
@@ -81,7 +83,7 @@ func printFromTree(ctx context.Context, tree *restic.Tree, repo restic.Repositor
 		if node.Name == pathComponents[0] || pathComponents[0] == "/" {
 			switch {
 			case l == 1 && node.Type == "file":
-				return getNodeData(ctx, os.Stdout, repo, node)
+				return getNodeData(ctx, dumpWriter, repo, node)
 			case l > 1 && node.Type == "dir":
 				subtree, err := repo.LoadTree(ctx, *node.Subtree)
 				if err != nil {
@@ -196,11 +198,11 @@ func getNodeData(ctx context.Context, output io.Writer, repo restic.Repository, 
 
 func tarTree(ctx context.Context, repo restic.Repository, rootNode *restic.Node, rootPath string) error {
 
-	if stdoutIsTerminal() {
+	if dumpWriter == os.Stdout && stdoutIsTerminal() {
 		return fmt.Errorf("stdout is the terminal, please redirect output")
 	}
 
-	tw := tar.NewWriter(os.Stdout)
+	tw := tar.NewWriter(dumpWriter)
 	defer tw.Close()
 
 	// If we want to dump "/" we'll need to add the name of the first node, too
