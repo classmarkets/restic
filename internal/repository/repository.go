@@ -3,7 +3,6 @@ package repository
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +16,8 @@ import (
 	"github.com/restic/restic/internal/hashing"
 	"github.com/restic/restic/internal/pack"
 	"github.com/restic/restic/internal/restic"
+
+	"github.com/minio/sha256-simd"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -28,6 +29,7 @@ type Repository struct {
 	keyName string
 	idx     *MasterIndex
 	restic.Cache
+	noAutoIndexUpdate bool
 
 	treePM *packerManager
 	dataPM *packerManager
@@ -43,6 +45,10 @@ func New(be restic.Backend) *Repository {
 	}
 
 	return repo
+}
+
+func (r *Repository) DisableAutoIndexUpdate() {
+	r.noAutoIndexUpdate = true
 }
 
 // Config returns the repository configuration.
@@ -111,6 +117,11 @@ func (r *Repository) sortCachedPacks(blobs []restic.PackedBlob) []restic.PackedB
 		return blobs
 	}
 
+	// no need to sort a list with one element
+	if len(blobs) == 1 {
+		return blobs
+	}
+
 	cached := make([]restic.PackedBlob, 0, len(blobs)/2)
 	noncached := make([]restic.PackedBlob, 0, len(blobs)/2)
 
@@ -125,17 +136,16 @@ func (r *Repository) sortCachedPacks(blobs []restic.PackedBlob) []restic.PackedB
 	return append(cached, noncached...)
 }
 
-// loadBlob tries to load and decrypt content identified by t and id from a
-// pack from the backend, the result is stored in plaintextBuf, which must be
-// large enough to hold the complete blob.
-func (r *Repository) loadBlob(ctx context.Context, id restic.ID, t restic.BlobType, plaintextBuf []byte) (int, error) {
-	debug.Log("load %v with id %v (buf len %v, cap %d)", t, id, len(plaintextBuf), cap(plaintextBuf))
+// LoadBlob loads a blob of type t from the repository.
+// It may use all of buf[:cap(buf)] as scratch space.
+func (r *Repository) LoadBlob(ctx context.Context, t restic.BlobType, id restic.ID, buf []byte) ([]byte, error) {
+	debug.Log("load %v with id %v (buf len %v, cap %d)", t, id, len(buf), cap(buf))
 
 	// lookup packs
 	blobs, found := r.idx.Lookup(id, t)
 	if !found {
 		debug.Log("id %v not found in index", id)
-		return 0, errors.Errorf("id %v not found in repository", id)
+		return nil, errors.Errorf("id %v not found in repository", id)
 	}
 
 	// try cached pack files first
@@ -152,13 +162,14 @@ func (r *Repository) loadBlob(ctx context.Context, id restic.ID, t restic.BlobTy
 		// load blob from pack
 		h := restic.Handle{Type: restic.DataFile, Name: blob.PackID.String()}
 
-		if uint(cap(plaintextBuf)) < blob.Length {
-			return 0, errors.Errorf("buffer is too small: %v < %v", cap(plaintextBuf), blob.Length)
+		switch {
+		case cap(buf) < int(blob.Length):
+			buf = make([]byte, blob.Length)
+		case len(buf) != int(blob.Length):
+			buf = buf[:blob.Length]
 		}
 
-		plaintextBuf = plaintextBuf[:blob.Length]
-
-		n, err := restic.ReadAt(ctx, r.be, h, int64(blob.Offset), plaintextBuf)
+		n, err := restic.ReadAt(ctx, r.be, h, int64(blob.Offset), buf)
 		if err != nil {
 			debug.Log("error loading blob %v: %v", blob, err)
 			lastError = err
@@ -173,7 +184,7 @@ func (r *Repository) loadBlob(ctx context.Context, id restic.ID, t restic.BlobTy
 		}
 
 		// decrypt
-		nonce, ciphertext := plaintextBuf[:r.key.NonceSize()], plaintextBuf[r.key.NonceSize():]
+		nonce, ciphertext := buf[:r.key.NonceSize()], buf[r.key.NonceSize():]
 		plaintext, err := r.key.Open(ciphertext[:0], nonce, ciphertext, nil)
 		if err != nil {
 			lastError = errors.Errorf("decrypting blob %v failed: %v", id, err)
@@ -186,16 +197,16 @@ func (r *Repository) loadBlob(ctx context.Context, id restic.ID, t restic.BlobTy
 			continue
 		}
 
-		// move decrypted data to the start of the provided buffer
-		copy(plaintextBuf[0:], plaintext)
-		return len(plaintext), nil
+		// move decrypted data to the start of the buffer
+		copy(buf, plaintext)
+		return buf[:len(plaintext)], nil
 	}
 
 	if lastError != nil {
-		return 0, lastError
+		return nil, lastError
 	}
 
-	return 0, errors.Errorf("loading blob %v from %v packs failed", id.Str(), len(blobs))
+	return nil, errors.Errorf("loading blob %v from %v packs failed", id.Str(), len(blobs))
 }
 
 // LoadJSONUnpacked decrypts the data and afterwards calls json.Unmarshal on
@@ -216,13 +227,8 @@ func (r *Repository) LookupBlobSize(id restic.ID, tpe restic.BlobType) (uint, bo
 
 // SaveAndEncrypt encrypts data and stores it to the backend as type t. If data
 // is small enough, it will be packed together with other small blobs.
-func (r *Repository) SaveAndEncrypt(ctx context.Context, t restic.BlobType, data []byte, id *restic.ID) (restic.ID, error) {
-	if id == nil {
-		// compute plaintext hash
-		hashedID := restic.Hash(data)
-		id = &hashedID
-	}
-
+// The caller must ensure that the id matches the data.
+func (r *Repository) SaveAndEncrypt(ctx context.Context, t restic.BlobType, data []byte, id restic.ID) error {
 	debug.Log("save id %v (%v, %d bytes)", id, t, len(data))
 
 	nonce := crypto.NewRandomNonce()
@@ -247,24 +253,24 @@ func (r *Repository) SaveAndEncrypt(ctx context.Context, t restic.BlobType, data
 
 	packer, err := pm.findPacker()
 	if err != nil {
-		return restic.ID{}, err
+		return err
 	}
 
 	// save ciphertext
-	_, err = packer.Add(t, *id, ciphertext)
+	_, err = packer.Add(t, id, ciphertext)
 	if err != nil {
-		return restic.ID{}, err
+		return err
 	}
 
 	// if the pack is not full enough, put back to the list
 	if packer.Size() < minPackSize {
 		debug.Log("pack is not full enough (%d bytes)", packer.Size())
 		pm.insertPacker(packer)
-		return *id, nil
+		return nil
 	}
 
 	// else write the pack to the backend
-	return *id, r.savePacker(ctx, t, packer)
+	return r.savePacker(ctx, t, packer)
 }
 
 // SaveJSONUnpacked serialises item as JSON and encrypts and saves it in the
@@ -302,8 +308,18 @@ func (r *Repository) SaveUnpacked(ctx context.Context, t restic.FileType, p []by
 	return id, nil
 }
 
-// Flush saves all remaining packs.
+// Flush saves all remaining packs and the index
 func (r *Repository) Flush(ctx context.Context) error {
+	if err := r.FlushPacks(ctx); err != nil {
+		return err
+	}
+
+	// Save index after flushing
+	return r.SaveIndex(ctx)
+}
+
+// FlushPacks saves all remaining packs.
+func (r *Repository) FlushPacks(ctx context.Context) error {
 	pms := []struct {
 		t  restic.BlobType
 		pm *packerManager
@@ -326,7 +342,6 @@ func (r *Repository) Flush(ctx context.Context) error {
 		p.pm.packers = p.pm.packers[:0]
 		p.pm.pm.Unlock()
 	}
-
 	return nil
 }
 
@@ -361,7 +376,7 @@ func (r *Repository) SetIndex(i restic.Index) error {
 func SaveIndex(ctx context.Context, repo restic.Repository, index *Index) (restic.ID, error) {
 	buf := bytes.NewBuffer(nil)
 
-	err := index.Finalize(buf)
+	err := index.Encode(buf)
 	if err != nil {
 		return restic.ID{}, err
 	}
@@ -387,12 +402,12 @@ func (r *Repository) saveIndex(ctx context.Context, indexes ...*Index) error {
 
 // SaveIndex saves all new indexes in the backend.
 func (r *Repository) SaveIndex(ctx context.Context) error {
-	return r.saveIndex(ctx, r.idx.NotFinalIndexes()...)
+	return r.saveIndex(ctx, r.idx.FinalizeNotFinalIndexes()...)
 }
 
 // SaveFullIndex saves all full indexes in the backend.
 func (r *Repository) SaveFullIndex(ctx context.Context) error {
-	return r.saveIndex(ctx, r.idx.FullIndexes()...)
+	return r.saveIndex(ctx, r.idx.FinalizeFullIndexes()...)
 }
 
 const loadIndexParallelism = 4
@@ -665,58 +680,39 @@ func (r *Repository) Close() error {
 	return r.be.Close()
 }
 
-// LoadBlob loads a blob of type t from the repository to the buffer. buf must
-// be large enough to hold the encrypted blob, since it is used as scratch
-// space.
-func (r *Repository) LoadBlob(ctx context.Context, t restic.BlobType, id restic.ID, buf []byte) (int, error) {
-	debug.Log("load blob %v into buf (len %v, cap %v)", id, len(buf), cap(buf))
-	size, found := r.idx.LookupSize(id, t)
-	if !found {
-		return 0, errors.Errorf("id %v not found in repository", id)
+// SaveBlob saves a blob of type t into the repository.
+// It takes care that no duplicates are saved; this can be overwritten
+// by setting storeDuplicate to true.
+// If id is the null id, it will be computed and returned.
+// Also returns if the blob was already known before
+func (r *Repository) SaveBlob(ctx context.Context, t restic.BlobType, buf []byte, id restic.ID, storeDuplicate bool) (newID restic.ID, known bool, err error) {
+
+	// compute plaintext hash if not already set
+	if id.IsNull() {
+		newID = restic.Hash(buf)
+	} else {
+		newID = id
 	}
 
-	if cap(buf) < restic.CiphertextLength(int(size)) {
-		return 0, errors.Errorf("buffer is too small for data blob (%d < %d)", cap(buf), restic.CiphertextLength(int(size)))
+	// first try to add to pending blobs; if not successful, this blob is already known
+	known = !r.idx.addPending(newID, t)
+
+	// only save when needed or explicitely told
+	if !known || storeDuplicate {
+		err = r.SaveAndEncrypt(ctx, t, buf, newID)
 	}
 
-	n, err := r.loadBlob(ctx, id, t, buf)
-	if err != nil {
-		return 0, err
-	}
-	buf = buf[:n]
-
-	debug.Log("loaded %d bytes into buf %p", len(buf), buf)
-
-	return len(buf), err
-}
-
-// SaveBlob saves a blob of type t into the repository. If id is the null id, it
-// will be computed and returned.
-func (r *Repository) SaveBlob(ctx context.Context, t restic.BlobType, buf []byte, id restic.ID) (restic.ID, error) {
-	var i *restic.ID
-	if !id.IsNull() {
-		i = &id
-	}
-	return r.SaveAndEncrypt(ctx, t, buf, i)
+	return newID, known, err
 }
 
 // LoadTree loads a tree from the repository.
 func (r *Repository) LoadTree(ctx context.Context, id restic.ID) (*restic.Tree, error) {
 	debug.Log("load tree %v", id)
 
-	size, found := r.idx.LookupSize(id, restic.TreeBlob)
-	if !found {
-		return nil, errors.Errorf("tree %v not found in repository", id)
-	}
-
-	debug.Log("size is %d, create buffer", size)
-	buf := restic.NewBlobBuffer(int(size))
-
-	n, err := r.loadBlob(ctx, id, restic.TreeBlob, buf)
+	buf, err := r.LoadBlob(ctx, restic.TreeBlob, id, nil)
 	if err != nil {
 		return nil, err
 	}
-	buf = buf[:n]
 
 	t := &restic.Tree{}
 	err = json.Unmarshal(buf, t)
@@ -740,12 +736,7 @@ func (r *Repository) SaveTree(ctx context.Context, t *restic.Tree) (restic.ID, e
 	// adds a newline after each object)
 	buf = append(buf, '\n')
 
-	id := restic.Hash(buf)
-	if r.idx.Has(id, restic.TreeBlob) {
-		return id, nil
-	}
-
-	_, err = r.SaveBlob(ctx, restic.TreeBlob, buf, id)
+	id, _, err := r.SaveBlob(ctx, restic.TreeBlob, buf, restic.ID{}, false)
 	return id, err
 }
 

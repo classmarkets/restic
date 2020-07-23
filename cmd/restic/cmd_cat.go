@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -76,7 +74,7 @@ func runCat(gopts GlobalOptions, args []string) error {
 			return err
 		}
 
-		fmt.Println(string(buf))
+		Println(string(buf))
 		return nil
 	case "index":
 		buf, err := repo.LoadAndDecrypt(gopts.ctx, nil, restic.IndexFile, id)
@@ -84,9 +82,8 @@ func runCat(gopts GlobalOptions, args []string) error {
 			return err
 		}
 
-		_, err = os.Stdout.Write(append(buf, '\n'))
-		return err
-
+		Println(string(buf))
+		return nil
 	case "snapshot":
 		sn := &restic.Snapshot{}
 		err = repo.LoadJSONUnpacked(gopts.ctx, restic.SnapshotFile, id, sn)
@@ -99,8 +96,7 @@ func runCat(gopts GlobalOptions, args []string) error {
 			return err
 		}
 
-		fmt.Println(string(buf))
-
+		Println(string(buf))
 		return nil
 	case "key":
 		h := restic.Handle{Type: restic.KeyFile, Name: id.String()}
@@ -120,7 +116,7 @@ func runCat(gopts GlobalOptions, args []string) error {
 			return err
 		}
 
-		fmt.Println(string(buf))
+		Println(string(buf))
 		return nil
 	case "masterkey":
 		buf, err := json.MarshalIndent(repo.Key(), "", "  ")
@@ -128,7 +124,7 @@ func runCat(gopts GlobalOptions, args []string) error {
 			return err
 		}
 
-		fmt.Println(string(buf))
+		Println(string(buf))
 		return nil
 	case "lock":
 		lock, err := restic.LoadLock(gopts.ctx, repo, id)
@@ -141,8 +137,7 @@ func runCat(gopts GlobalOptions, args []string) error {
 			return err
 		}
 
-		fmt.Println(string(buf))
-
+		Println(string(buf))
 		return nil
 	}
 
@@ -162,28 +157,25 @@ func runCat(gopts GlobalOptions, args []string) error {
 
 		hash := restic.Hash(buf)
 		if !hash.Equal(id) {
-			fmt.Fprintf(stderr, "Warning: hash of data does not match ID, want\n  %v\ngot:\n  %v\n", id.String(), hash.String())
+			Warnf("Warning: hash of data does not match ID, want\n  %v\ngot:\n  %v\n", id.String(), hash.String())
 		}
 
-		_, err = os.Stdout.Write(buf)
+		_, err = globalOptions.stdout.Write(buf)
 		return err
 
 	case "blob":
 		for _, t := range []restic.BlobType{restic.DataBlob, restic.TreeBlob} {
-			list, found := repo.Index().Lookup(id, t)
+			_, found := repo.Index().Lookup(id, t)
 			if !found {
 				continue
 			}
-			blob := list[0]
 
-			buf := make([]byte, blob.Length)
-			n, err := repo.LoadBlob(gopts.ctx, t, id, buf)
+			buf, err := repo.LoadBlob(gopts.ctx, t, id, nil)
 			if err != nil {
 				return err
 			}
-			buf = buf[:n]
 
-			_, err = os.Stdout.Write(buf)
+			_, err = globalOptions.stdout.Write(buf)
 			return err
 		}
 

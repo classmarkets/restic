@@ -39,10 +39,9 @@ given as the arguments.
 EXIT STATUS
 ===========
 
-Exit status is 0 if the command was successful, and non-zero if there was any error.
-
-Note that some issues such as unreadable or deleted files during backup
-currently doesn't result in a non-zero error exit status.
+Exit status is 0 if the command was successful.
+Exit status is 1 if there was a fatal error (no snapshot created).
+Exit status is 3 if some source data could not be read (incomplete snapshot created).
 `,
 	PreRun: func(cmd *cobra.Command, args []string) {
 		if backupOptions.Host == "" {
@@ -99,28 +98,31 @@ type BackupOptions struct {
 
 var backupOptions BackupOptions
 
+// Error sentinel for invalid source data
+var InvalidSourceData = errors.New("Failed to read all source data during backup.")
+
 func init() {
 	cmdRoot.AddCommand(cmdBackup)
 
 	f := cmdBackup.Flags()
-	f.StringVar(&backupOptions.Parent, "parent", "", "use this parent snapshot (default: last snapshot in the repo that has the same target files/directories)")
+	f.StringVar(&backupOptions.Parent, "parent", "", "use this parent `snapshot` (default: last snapshot in the repo that has the same target files/directories)")
 	f.BoolVarP(&backupOptions.Force, "force", "f", false, `force re-reading the target files/directories (overrides the "parent" flag)`)
 	f.StringArrayVarP(&backupOptions.Excludes, "exclude", "e", nil, "exclude a `pattern` (can be specified multiple times)")
-	f.StringArrayVar(&backupOptions.InsensitiveExcludes, "iexclude", nil, "same as `--exclude` but ignores the casing of filenames")
+	f.StringArrayVar(&backupOptions.InsensitiveExcludes, "iexclude", nil, "same as --exclude `pattern` but ignores the casing of filenames")
 	f.StringArrayVar(&backupOptions.ExcludeFiles, "exclude-file", nil, "read exclude patterns from a `file` (can be specified multiple times)")
 	f.BoolVarP(&backupOptions.ExcludeOtherFS, "one-file-system", "x", false, "exclude other file systems")
-	f.StringArrayVar(&backupOptions.ExcludeIfPresent, "exclude-if-present", nil, "takes filename[:header], exclude contents of directories containing filename (except filename itself) if header of that file is as provided (can be specified multiple times)")
-	f.BoolVar(&backupOptions.ExcludeCaches, "exclude-caches", false, `excludes cache directories that are marked with a CACHEDIR.TAG file. See http://bford.info/cachedir/spec.html for the Cache Directory Tagging Standard`)
+	f.StringArrayVar(&backupOptions.ExcludeIfPresent, "exclude-if-present", nil, "takes `filename[:header]`, exclude contents of directories containing filename (except filename itself) if header of that file is as provided (can be specified multiple times)")
+	f.BoolVar(&backupOptions.ExcludeCaches, "exclude-caches", false, `excludes cache directories that are marked with a CACHEDIR.TAG file. See https://bford.info/cachedir/ for the Cache Directory Tagging Standard`)
 	f.BoolVar(&backupOptions.Stdin, "stdin", false, "read backup from stdin")
-	f.StringVar(&backupOptions.StdinFilename, "stdin-filename", "stdin", "file name to use when reading from stdin")
+	f.StringVar(&backupOptions.StdinFilename, "stdin-filename", "stdin", "`filename` to use when reading from stdin")
 	f.StringArrayVar(&backupOptions.Tags, "tag", nil, "add a `tag` for the new snapshot (can be specified multiple times)")
 
 	f.StringVarP(&backupOptions.Host, "host", "H", "", "set the `hostname` for the snapshot manually. To prevent an expensive rescan use the \"parent\" flag")
 	f.StringVar(&backupOptions.Host, "hostname", "", "set the `hostname` for the snapshot manually")
 	f.MarkDeprecated("hostname", "use --host")
 
-	f.StringArrayVar(&backupOptions.FilesFrom, "files-from", nil, "read the files to backup from file (can be combined with file args/can be specified multiple times)")
-	f.StringVar(&backupOptions.TimeStamp, "time", "", "time of the backup (ex. '2012-11-01 22:08:41') (default: now)")
+	f.StringArrayVar(&backupOptions.FilesFrom, "files-from", nil, "read the files to backup from `file` (can be combined with file args/can be specified multiple times)")
+	f.StringVar(&backupOptions.TimeStamp, "time", "", "`time` of the backup (ex. '2012-11-01 22:08:41') (default: now)")
 	f.BoolVar(&backupOptions.WithAtime, "with-atime", false, "store the atime for all files and directories")
 	f.BoolVar(&backupOptions.IgnoreInode, "ignore-inode", false, "ignore inode number changes when checking for modified files")
 }
@@ -415,7 +417,7 @@ func runBackup(opts BackupOptions, gopts GlobalOptions, term *termstatus.Termina
 	var t tomb.Tomb
 
 	if gopts.verbosity >= 2 && !gopts.JSON {
-		term.Print("open repository\n")
+		Verbosef("open repository\n")
 	}
 
 	repo, err := OpenRepository(gopts)
@@ -557,7 +559,11 @@ func runBackup(opts BackupOptions, gopts GlobalOptions, term *termstatus.Termina
 	arch.SelectByName = selectByNameFilter
 	arch.Select = selectFilter
 	arch.WithAtime = opts.WithAtime
-	arch.Error = p.Error
+	success := true
+	arch.Error = func(item string, fi os.FileInfo, err error) error {
+		success = false
+		return p.Error(item, fi, err)
+	}
 	arch.CompleteItem = p.CompleteItem
 	arch.StartFile = p.StartFile
 	arch.CompleteBlob = p.CompleteBlob
@@ -574,24 +580,6 @@ func runBackup(opts BackupOptions, gopts GlobalOptions, term *termstatus.Termina
 		Hostname:       opts.Host,
 		ParentSnapshot: *parentSnapshotID,
 	}
-
-	uploader := archiver.IndexUploader{
-		Repository: repo,
-		Start: func() {
-			if !gopts.JSON {
-				p.VV("uploading intermediate index")
-			}
-		},
-		Complete: func(id restic.ID) {
-			if !gopts.JSON {
-				p.V("uploaded intermediate index %v", id.Str())
-			}
-		},
-	}
-
-	t.Go(func() error {
-		return uploader.Upload(gopts.ctx, t.Context(gopts.ctx), 30*time.Second)
-	})
 
 	if !gopts.JSON {
 		p.V("start backup on %v", targets)
@@ -611,6 +599,9 @@ func runBackup(opts BackupOptions, gopts GlobalOptions, term *termstatus.Termina
 	p.Finish(id)
 	if !gopts.JSON {
 		p.P("snapshot %s saved\n", id.Str())
+	}
+	if !success {
+		return InvalidSourceData
 	}
 
 	// Return error if any

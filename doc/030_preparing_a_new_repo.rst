@@ -54,6 +54,13 @@ command and enter the same password twice:
    Remembering your password is important! If you lose it, you won't be
    able to access data stored in the repository.
 
+.. warning::
+
+   On Linux, storing the backup repository on a CIFS (SMB) share is not
+   recommended due to compatibility issues. Either use another backend
+   or set the environment variable `GODEBUG` to `asyncpreemptoff=1`.
+   Refer to GitHub issue #2659 for further explanations.
+
 SFTP
 ****
 
@@ -268,7 +275,7 @@ Wasabi
 Due to it's S3 conformance, Wasabi can be used as a storage provider for a restic repository.
 
 -  Create a Wasabi bucket using the `Wasabi Console <https://console.wasabisys.com>`__.
--  Determine the correct Wasabi service URL for your bucket `here <https://wasabi-support.zendesk.com/hc/en-us/articles/360015106031-What-are-the-service-URLs-for-Wasabi-s-different-regions->__`.
+-  Determine the correct Wasabi service URL for your bucket `here <https://wasabi-support.zendesk.com/hc/en-us/articles/360015106031-What-are-the-service-URLs-for-Wasabi-s-different-regions->`__.
 
 You must first setup the following environment variables with the
 credentials of your Wasabi account.
@@ -450,6 +457,18 @@ Restic uses  Google's client library to generate `default authentication materia
 which means if you're running in Google Container Engine or are otherwise
 located on an instance with default service accounts then these should work out of 
 the box.
+
+Alternatively, you can specify an existing access token directly:
+
+.. code-block:: console
+
+    $ export GOOGLE_ACCESS_TOKEN=ya29.a0AfH6SMC78...
+
+If ``GOOGLE_ACCESS_TOKEN`` is set all other authentication mechanisms are
+disabled. The access token must have at least the
+``https://www.googleapis.com/auth/devstorage.read_write`` scope. Keep in mind
+that access tokens are short-lived (usually one hour), so they are not suitable
+if creating a backup takes longer than that, for instance.
 
 Once authenticated, you can use the ``gs:`` backend type to create a new
 repository in the bucket ``foo`` at the root path:

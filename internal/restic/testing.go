@@ -15,14 +15,13 @@ import (
 )
 
 // fakeFile returns a reader which yields deterministic pseudo-random data.
-func fakeFile(t testing.TB, seed, size int64) io.Reader {
+func fakeFile(seed, size int64) io.Reader {
 	return io.LimitReader(rand.New(rand.NewSource(seed)), size)
 }
 
 type fakeFileSystem struct {
 	t           testing.TB
 	repo        Repository
-	knownBlobs  IDSet
 	duplication float32
 	buf         []byte
 	chunker     *chunker.Chunker
@@ -55,12 +54,11 @@ func (fs *fakeFileSystem) saveFile(ctx context.Context, rd io.Reader) (blobs IDs
 
 		id := Hash(chunk.Data)
 		if !fs.blobIsKnown(id, DataBlob) {
-			_, err := fs.repo.SaveBlob(ctx, DataBlob, chunk.Data, id)
+			_, _, err := fs.repo.SaveBlob(ctx, DataBlob, chunk.Data, id, true)
 			if err != nil {
 				fs.t.Fatalf("error saving chunk: %v", err)
 			}
 
-			fs.knownBlobs.Insert(id)
 		}
 
 		blobs = append(blobs, id)
@@ -92,15 +90,10 @@ func (fs *fakeFileSystem) blobIsKnown(id ID, t BlobType) bool {
 		return false
 	}
 
-	if fs.knownBlobs.Has(id) {
-		return true
-	}
-
 	if fs.repo.Index().Has(id, t) {
 		return true
 	}
 
-	fs.knownBlobs.Insert(id)
 	return false
 }
 
@@ -138,7 +131,7 @@ func (fs *fakeFileSystem) saveTree(ctx context.Context, seed int64, depth int) I
 			Size: uint64(fileSize),
 		}
 
-		node.Content = fs.saveFile(ctx, fakeFile(fs.t, fileSeed, fileSize))
+		node.Content = fs.saveFile(ctx, fakeFile(fileSeed, fileSize))
 		tree.Nodes = append(tree.Nodes, node)
 	}
 
@@ -147,7 +140,7 @@ func (fs *fakeFileSystem) saveTree(ctx context.Context, seed int64, depth int) I
 		return id
 	}
 
-	_, err := fs.repo.SaveBlob(ctx, TreeBlob, buf, id)
+	_, _, err := fs.repo.SaveBlob(ctx, TreeBlob, buf, id, false)
 	if err != nil {
 		fs.t.Fatal(err)
 	}
@@ -174,7 +167,6 @@ func TestCreateSnapshot(t testing.TB, repo Repository, at time.Time, depth int, 
 	fs := fakeFileSystem{
 		t:           t,
 		repo:        repo,
-		knownBlobs:  NewIDSet(),
 		duplication: duplication,
 		rand:        rand.New(rand.NewSource(seed)),
 	}
@@ -192,11 +184,6 @@ func TestCreateSnapshot(t testing.TB, repo Repository, at time.Time, depth int, 
 	t.Logf("saved snapshot %v", id.Str())
 
 	err = repo.Flush(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = repo.SaveIndex(context.TODO())
 	if err != nil {
 		t.Fatal(err)
 	}

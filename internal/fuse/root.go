@@ -1,11 +1,9 @@
-// +build !netbsd
-// +build !openbsd
-// +build !solaris
-// +build !windows
+// +build darwin freebsd linux
 
 package fuse
 
 import (
+	"os"
 	"time"
 
 	"github.com/restic/restic/internal/debug"
@@ -31,12 +29,15 @@ type Root struct {
 	cfg           Config
 	inode         uint64
 	snapshots     restic.Snapshots
+	blobCache     *blobCache
 	blobSizeCache *BlobSizeCache
 
 	snCount   int
 	lastCheck time.Time
 
 	*MetaDir
+
+	uid, gid uint32
 }
 
 // ensure that *Root implements these interfaces
@@ -45,15 +46,24 @@ var _ = fs.NodeStringLookuper(&Root{})
 
 const rootInode = 1
 
+// Size of the blob cache. TODO: make this configurable.
+const blobCacheSize = 64 << 20
+
 // NewRoot initializes a new root node from a repository.
-func NewRoot(ctx context.Context, repo restic.Repository, cfg Config) (*Root, error) {
+func NewRoot(ctx context.Context, repo restic.Repository, cfg Config) *Root {
 	debug.Log("NewRoot(), config %v", cfg)
 
 	root := &Root{
 		repo:          repo,
 		inode:         rootInode,
 		cfg:           cfg,
+		blobCache:     newBlobCache(blobCacheSize),
 		blobSizeCache: NewBlobSizeCache(ctx, repo.Index()),
+	}
+
+	if !cfg.OwnerIsRoot {
+		root.uid = uint32(os.Getuid())
+		root.gid = uint32(os.Getgid())
 	}
 
 	entries := map[string]fs.Node{
@@ -65,7 +75,7 @@ func NewRoot(ctx context.Context, repo restic.Repository, cfg Config) (*Root, er
 
 	root.MetaDir = NewMetaDir(root, rootInode, entries)
 
-	return root, nil
+	return root
 }
 
 // Root is just there to satisfy fs.Root, it returns itself.

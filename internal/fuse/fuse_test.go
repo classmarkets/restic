@@ -1,13 +1,11 @@
-// +build !netbsd
-// +build !openbsd
-// +build !solaris
-// +build !windows
+// +build darwin freebsd linux
 
 package fuse
 
 import (
 	"bytes"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -21,6 +19,48 @@ import (
 
 	rtest "github.com/restic/restic/internal/test"
 )
+
+func TestCache(t *testing.T) {
+	var id1, id2, id3 restic.ID
+	id1[0] = 1
+	id2[0] = 2
+	id3[0] = 3
+
+	const (
+		kiB       = 1 << 10
+		cacheSize = 64*kiB + 3*cacheOverhead
+	)
+
+	c := newBlobCache(cacheSize)
+
+	addAndCheck := func(id restic.ID, exp []byte) {
+		c.add(id, exp)
+		blob, ok := c.get(id)
+		rtest.Assert(t, ok, "blob %v added but not found in cache", id)
+		rtest.Equals(t, &exp[0], &blob[0])
+		rtest.Equals(t, exp, blob)
+	}
+
+	addAndCheck(id1, make([]byte, 32*kiB))
+	addAndCheck(id2, make([]byte, 30*kiB))
+	addAndCheck(id3, make([]byte, 10*kiB))
+
+	_, ok := c.get(id2)
+	rtest.Assert(t, ok, "blob %v not present", id2)
+	_, ok = c.get(id1)
+	rtest.Assert(t, !ok, "blob %v present, but should have been evicted", id1)
+
+	c.add(id1, make([]byte, 1+c.size))
+	_, ok = c.get(id1)
+	rtest.Assert(t, !ok, "blob %v too large but still added to cache")
+
+	c.c.Remove(id1)
+	c.c.Remove(id3)
+	c.c.Remove(id2)
+
+	rtest.Equals(t, cacheSize, c.size)
+	rtest.Equals(t, cacheSize, c.free)
+}
 
 func testRead(t testing.TB, f *file, offset, length int, data []byte) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -93,12 +133,11 @@ func TestFuseFile(t *testing.T) {
 		rtest.Assert(t, found, "Expected to find blob id %v", id)
 		filesize += uint64(size)
 
-		buf := restic.NewBlobBuffer(int(size))
-		n, err := repo.LoadBlob(context.TODO(), restic.DataBlob, id, buf)
+		buf, err := repo.LoadBlob(context.TODO(), restic.DataBlob, id, nil)
 		rtest.OK(t, err)
 
-		if uint(n) != size {
-			t.Fatalf("not enough bytes read for id %v: want %v, got %v", id.Str(), size, n)
+		if len(buf) != int(size) {
+			t.Fatalf("not enough bytes read for id %v: want %v, got %v", id.Str(), size, len(buf))
 		}
 
 		if uint(len(buf)) != size {
@@ -117,10 +156,7 @@ func TestFuseFile(t *testing.T) {
 		Size:    filesize,
 		Content: content,
 	}
-	root := &Root{
-		blobSizeCache: NewBlobSizeCache(context.TODO(), repo.Index()),
-		repo:          repo,
-	}
+	root := NewRoot(context.TODO(), repo, Config{})
 
 	t.Logf("blob cache has %d entries", len(root.blobSizeCache.m))
 
@@ -149,6 +185,45 @@ func TestFuseFile(t *testing.T) {
 			t.Errorf("test %d failed, wrong data returned (offset %v, length %v)", i, offset, length)
 		}
 	}
+}
 
-	rtest.OK(t, f.Release(ctx, nil))
+// Test top-level directories for their UID and GID.
+func TestTopUidGid(t *testing.T) {
+	repo, cleanup := repository.TestRepository(t)
+	defer cleanup()
+
+	restic.TestCreateSnapshot(t, repo, time.Unix(1460289341, 207401672), 0, 0)
+
+	testTopUidGid(t, Config{}, repo, uint32(os.Getuid()), uint32(os.Getgid()))
+	testTopUidGid(t, Config{OwnerIsRoot: true}, repo, 0, 0)
+}
+
+func testTopUidGid(t *testing.T, cfg Config, repo restic.Repository, uid, gid uint32) {
+	t.Helper()
+
+	ctx := context.Background()
+	root := NewRoot(ctx, repo, cfg)
+
+	var attr fuse.Attr
+	err := root.Attr(ctx, &attr)
+	rtest.OK(t, err)
+	rtest.Equals(t, uid, attr.Uid)
+	rtest.Equals(t, gid, attr.Gid)
+
+	idsdir, err := root.Lookup(ctx, "ids")
+	rtest.OK(t, err)
+
+	err = idsdir.Attr(ctx, &attr)
+	rtest.OK(t, err)
+	rtest.Equals(t, uid, attr.Uid)
+	rtest.Equals(t, gid, attr.Gid)
+
+	snapID := loadFirstSnapshot(t, repo).ID().Str()
+	snapshotdir, err := idsdir.(fs.NodeStringLookuper).Lookup(ctx, snapID)
+	rtest.OK(t, err)
+
+	err = snapshotdir.Attr(ctx, &attr)
+	rtest.OK(t, err)
+	rtest.Equals(t, uid, attr.Uid)
+	rtest.Equals(t, gid, attr.Gid)
 }

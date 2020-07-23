@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -36,7 +34,7 @@ func lockRepository(repo *repository.Repository, exclusive bool) (*restic.Lock, 
 
 	lock, err := lockFn(context.TODO(), repo)
 	if err != nil {
-		return nil, errors.Fatalf("unable to create lock in backend: %v", err)
+		return nil, errors.WithMessage(err, "unable to create lock in backend")
 	}
 	debug.Log("create lock %p (exclusive %v)", lock, exclusive)
 
@@ -79,7 +77,7 @@ func refreshLocks(wg *sync.WaitGroup, done <-chan struct{}) {
 			for _, lock := range globalLocks.locks {
 				err := lock.Refresh(context.TODO())
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "unable to refresh lock: %v\n", err)
+					Warnf("unable to refresh lock: %v\n", err)
 				}
 			}
 			globalLocks.Unlock()

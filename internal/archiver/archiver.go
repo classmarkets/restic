@@ -181,7 +181,7 @@ func (arch *Archiver) saveTree(ctx context.Context, t *restic.Tree) (restic.ID, 
 	return res.ID(), s, nil
 }
 
-// nodeFromFileInfo returns the restic node from a os.FileInfo.
+// nodeFromFileInfo returns the restic node from an os.FileInfo.
 func (arch *Archiver) nodeFromFileInfo(filename string, fi os.FileInfo) (*restic.Node, error) {
 	node, err := restic.NodeFromFileInfo(filename, fi)
 	if !arch.WithAtime {
@@ -779,11 +779,6 @@ func (arch *Archiver) Snapshot(ctx context.Context, targets []string, opts Snaps
 	arch.CompleteItem("/", nil, nil, stats, time.Since(start))
 
 	err = arch.Repo.Flush(ctx)
-	if err != nil {
-		return nil, restic.ID{}, err
-	}
-
-	err = arch.Repo.SaveIndex(ctx)
 	if err != nil {
 		return nil, restic.ID{}, err
 	}

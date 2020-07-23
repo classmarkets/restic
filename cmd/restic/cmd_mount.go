@@ -1,7 +1,4 @@
-// +build !netbsd
-// +build !openbsd
-// +build !solaris
-// +build !windows
+// +build darwin freebsd linux
 
 package main
 
@@ -142,10 +139,7 @@ func mount(opts MountOptions, gopts GlobalOptions, mountpoint string) error {
 		Paths:            opts.Paths,
 		SnapshotTemplate: opts.SnapshotTemplate,
 	}
-	root, err := fuse.NewRoot(gopts.ctx, repo, cfg)
-	if err != nil {
-		return err
-	}
+	root := fuse.NewRoot(gopts.ctx, repo, cfg)
 
 	Printf("Now serving the repository at %s\n", mountpoint)
 	Printf("When finished, quit with Ctrl-c or umount the mountpoint.\n")
@@ -183,7 +177,7 @@ func runMount(opts MountOptions, gopts GlobalOptions, args []string) error {
 		debug.Log("running umount cleanup handler for mount at %v", mountpoint)
 		err := umount(mountpoint)
 		if err != nil {
-			Warnf("unable to umount (maybe already umounted?): %v\n", err)
+			Warnf("unable to umount (maybe already umounted or still in use?): %v\n", err)
 		}
 		return nil
 	})

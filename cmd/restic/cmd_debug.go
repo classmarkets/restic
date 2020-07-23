@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -90,7 +89,7 @@ func printPacks(repo *repository.Repository, wr io.Writer) error {
 
 		blobs, err := pack.List(repo.Key(), restic.ReaderAt(repo.Backend(), h), size)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error for pack %v: %v\n", id.Str(), err)
+			Warnf("error for pack %v: %v\n", id.Str(), err)
 			return nil
 		}
 
@@ -107,22 +106,20 @@ func printPacks(repo *repository.Repository, wr io.Writer) error {
 			}
 		}
 
-		return prettyPrintJSON(os.Stdout, p)
+		return prettyPrintJSON(wr, p)
 	})
-
-	return nil
 }
 
-func dumpIndexes(repo restic.Repository) error {
+func dumpIndexes(repo restic.Repository, wr io.Writer) error {
 	return repo.List(context.TODO(), restic.IndexFile, func(id restic.ID, size int64) error {
-		fmt.Printf("index_id: %v\n", id)
+		Printf("index_id: %v\n", id)
 
 		idx, err := repository.LoadIndex(context.TODO(), repo, id)
 		if err != nil {
 			return err
 		}
 
-		return idx.Dump(os.Stdout)
+		return idx.Dump(wr)
 	})
 }
 
@@ -144,29 +141,24 @@ func runDebugDump(gopts GlobalOptions, args []string) error {
 		}
 	}
 
-	err = repo.LoadIndex(gopts.ctx)
-	if err != nil {
-		return err
-	}
-
 	tpe := args[0]
 
 	switch tpe {
 	case "indexes":
-		return dumpIndexes(repo)
+		return dumpIndexes(repo, gopts.stdout)
 	case "snapshots":
-		return debugPrintSnapshots(repo, os.Stdout)
+		return debugPrintSnapshots(repo, gopts.stdout)
 	case "packs":
-		return printPacks(repo, os.Stdout)
+		return printPacks(repo, gopts.stdout)
 	case "all":
-		fmt.Printf("snapshots:\n")
-		err := debugPrintSnapshots(repo, os.Stdout)
+		Printf("snapshots:\n")
+		err := debugPrintSnapshots(repo, gopts.stdout)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("\nindexes:\n")
-		err = dumpIndexes(repo)
+		Printf("\nindexes:\n")
+		err = dumpIndexes(repo, gopts.stdout)
 		if err != nil {
 			return err
 		}

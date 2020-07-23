@@ -1,7 +1,4 @@
-// +build !netbsd
-// +build !openbsd
-// +build !solaris
-// +build !windows
+// +build darwin freebsd linux
 
 package fuse
 
@@ -98,8 +95,6 @@ func newDirFromSnapshot(ctx context.Context, root *Root, inode uint64, snapshot 
 	return &dir{
 		root: root,
 		node: &restic.Node{
-			UID:        uint32(os.Getuid()),
-			GID:        uint32(os.Getgid()),
 			AccessTime: snapshot.Time,
 			ModTime:    snapshot.Time,
 			ChangeTime: snapshot.Time,
@@ -111,14 +106,11 @@ func newDirFromSnapshot(ctx context.Context, root *Root, inode uint64, snapshot 
 }
 
 func (d *dir) Attr(ctx context.Context, a *fuse.Attr) error {
-	debug.Log("called")
+	debug.Log("Attr()")
 	a.Inode = d.inode
 	a.Mode = os.ModeDir | d.node.Mode
-
-	if !d.root.cfg.OwnerIsRoot {
-		a.Uid = d.node.UID
-		a.Gid = d.node.GID
-	}
+	a.Uid = d.root.uid
+	a.Gid = d.root.gid
 	a.Atime = d.node.AccessTime
 	a.Ctime = d.node.ChangeTime
 	a.Mtime = d.node.ModTime
@@ -142,7 +134,7 @@ func (d *dir) calcNumberOfLinks() uint32 {
 }
 
 func (d *dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	debug.Log("called")
+	debug.Log("ReadDirAll()")
 	ret := make([]fuse.Dirent, 0, len(d.items)+2)
 
 	ret = append(ret, fuse.Dirent{

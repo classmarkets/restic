@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/restic/restic/internal/errors"
 	"github.com/restic/restic/internal/restic"
 	"github.com/restic/restic/internal/walker"
+
+	"github.com/minio/sha256-simd"
 	"github.com/spf13/cobra"
 )
 
@@ -148,7 +148,7 @@ func runStats(gopts GlobalOptions, args []string) error {
 	}
 
 	if gopts.JSON {
-		err = json.NewEncoder(os.Stdout).Encode(stats)
+		err = json.NewEncoder(globalOptions.stdout).Encode(stats)
 		if err != nil {
 			return fmt.Errorf("encoding output: %v", err)
 		}
@@ -194,7 +194,7 @@ func statsWalkSnapshot(ctx context.Context, snapshot *restic.Snapshot, repo rest
 }
 
 func statsWalkTree(repo restic.Repository, stats *statsContainer) walker.WalkFunc {
-	return func(_ restic.ID, npath string, node *restic.Node, nodeErr error) (bool, error) {
+	return func(parentTreeID restic.ID, npath string, node *restic.Node, nodeErr error) (bool, error) {
 		if nodeErr != nil {
 			return true, nodeErr
 		}
@@ -229,7 +229,7 @@ func statsWalkTree(repo restic.Repository, stats *statsContainer) walker.WalkFun
 							// is always a data blob since we're accessing it via a file's Content array
 							blobSize, found := repo.LookupBlobSize(blobID, restic.DataBlob)
 							if !found {
-								return true, fmt.Errorf("blob %s not found for tree %s", blobID, *node.Subtree)
+								return true, fmt.Errorf("blob %s not found for tree %s", blobID, parentTreeID)
 							}
 
 							// count the blob's size, then add this blob by this

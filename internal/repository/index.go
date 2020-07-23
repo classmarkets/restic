@@ -13,11 +13,41 @@ import (
 	"github.com/restic/restic/internal/debug"
 )
 
-// Index holds a lookup table for id -> pack.
+// In large repositories, millions of blobs are stored in the repository
+// and restic needs to store an index entry for each blob in memory for
+// most operations.
+// Hence the index data structure defined here is one of the main contributions
+// to the total memory requirements of restic.
+//
+// We store the index entries in indexMaps. In these maps, entries take 56
+// bytes each, plus 8/4 = 2 bytes of unused pointers on average, not counting
+// malloc and header struct overhead and ignoring duplicates (those are only
+// present in edge cases and are also removed by prune runs).
+//
+// In the index entries, we need to reference the packID. As one pack may
+// contain many blobs the packIDs are saved in a separate array and only the index
+// within this array is saved in the indexEntry
+//
+// We assume on average a minimum of 8 blobs per pack; BP=8.
+// (Note that for large files there should be 3 blobs per pack as the average chunk
+// size is 1.5 MB and the minimum pack size is 4 MB)
+//
+// We have the following sizes:
+// indexEntry:  56 bytes  (on amd64)
+// each packID: 32 bytes
+//
+// To save N index entries, we therefore need:
+// N * (56 + 2) bytes + N * 32 bytes / BP = N * 62 bytes,
+// i.e., fewer than 64 bytes per blob in an index.
+
+// Index holds lookup tables for id -> pack.
 type Index struct {
 	m         sync.Mutex
-	pack      map[restic.BlobHandle][]indexEntry
+	byType    [restic.NumBlobTypes]indexMap
+	packs     restic.IDs
 	treePacks restic.IDs
+	// only used by Store, StorePacks does not check for already saved packIDs
+	packIDToIndex map[restic.ID]int
 
 	final      bool      // set to true for all indexes read from the backend ("finalized")
 	id         restic.ID // set to the ID of the index when it's finalized
@@ -25,28 +55,31 @@ type Index struct {
 	created    time.Time
 }
 
-type indexEntry struct {
-	packID restic.ID
-	offset uint
-	length uint
-}
-
 // NewIndex returns a new index.
 func NewIndex() *Index {
 	return &Index{
-		pack:    make(map[restic.BlobHandle][]indexEntry),
-		created: time.Now(),
+		packIDToIndex: make(map[restic.ID]int),
+		created:       time.Now(),
 	}
 }
 
-func (idx *Index) store(blob restic.PackedBlob) {
-	newEntry := indexEntry{
-		packID: blob.PackID,
-		offset: blob.Offset,
-		length: blob.Length,
+// addToPacks saves the given pack ID and return the index.
+// This procedere allows to use pack IDs which can be easily garbage collected after.
+func (idx *Index) addToPacks(id restic.ID) int {
+	idx.packs = append(idx.packs, id)
+	return len(idx.packs) - 1
+}
+
+const maxuint32 = 1<<32 - 1
+
+func (idx *Index) store(packIndex int, blob restic.Blob) {
+	// assert that offset and length fit into uint32!
+	if blob.Offset > maxuint32 || blob.Length > maxuint32 {
+		panic("offset or length does not fit in uint32. You have packs > 4GB!")
 	}
-	h := restic.BlobHandle{ID: blob.ID, Type: blob.Type}
-	idx.pack[h] = append(idx.pack[h], newEntry)
+
+	m := &idx.byType[blob.Type]
+	m.add(blob.ID, packIndex, uint32(blob.Offset), uint32(blob.Length))
 }
 
 // Final returns true iff the index is already written to the repository, it is
@@ -59,10 +92,8 @@ func (idx *Index) Final() bool {
 }
 
 const (
-	indexMinBlobs = 20
-	indexMaxBlobs = 2000
-	indexMinAge   = 2 * time.Minute
-	indexMaxAge   = 15 * time.Minute
+	indexMaxBlobs = 50000
+	indexMaxAge   = 10 * time.Minute
 )
 
 // IndexFull returns true iff the index is "full enough" to be saved as a preliminary index.
@@ -72,30 +103,27 @@ var IndexFull = func(idx *Index) bool {
 
 	debug.Log("checking whether index %p is full", idx)
 
-	packs := len(idx.pack)
+	var blobs uint
+	for typ := range idx.byType {
+		blobs += idx.byType[typ].len()
+	}
 	age := time.Now().Sub(idx.created)
 
-	if age > indexMaxAge {
+	switch {
+	case age >= indexMaxAge:
 		debug.Log("index %p is old enough", idx, age)
 		return true
-	}
-
-	if packs < indexMinBlobs || age < indexMinAge {
-		debug.Log("index %p only has %d packs or is too young (%v)", idx, packs, age)
-		return false
-	}
-
-	if packs > indexMaxBlobs {
-		debug.Log("index %p has %d packs", idx, packs)
+	case blobs >= indexMaxBlobs:
+		debug.Log("index %p has %d blobs", idx, blobs)
 		return true
 	}
 
-	debug.Log("index %p is not full", idx)
+	debug.Log("index %p only has %d blobs and is too young (%v)", idx, blobs, age)
 	return false
+
 }
 
-// Store remembers the id and pack in the index. An existing entry will be
-// silently overwritten.
+// Store remembers the id and pack in the index.
 func (idx *Index) Store(blob restic.PackedBlob) {
 	idx.m.Lock()
 	defer idx.m.Unlock()
@@ -106,7 +134,44 @@ func (idx *Index) Store(blob restic.PackedBlob) {
 
 	debug.Log("%v", blob)
 
-	idx.store(blob)
+	// get packIndex and save if new packID
+	packIndex, ok := idx.packIDToIndex[blob.PackID]
+	if !ok {
+		packIndex = idx.addToPacks(blob.PackID)
+		idx.packIDToIndex[blob.PackID] = packIndex
+	}
+
+	idx.store(packIndex, blob.Blob)
+}
+
+// StorePack remembers the ids of all blobs of a given pack
+// in the index
+func (idx *Index) StorePack(id restic.ID, blobs []restic.Blob) {
+	idx.m.Lock()
+	defer idx.m.Unlock()
+
+	if idx.final {
+		panic("store new item in finalized index")
+	}
+
+	debug.Log("%v", blobs)
+	packIndex := idx.addToPacks(id)
+
+	for _, blob := range blobs {
+		idx.store(packIndex, blob)
+	}
+}
+
+func (idx *Index) toPackedBlob(e *indexEntry, typ restic.BlobType) restic.PackedBlob {
+	return restic.PackedBlob{
+		Blob: restic.Blob{
+			ID:     e.id,
+			Type:   typ,
+			Length: uint(e.length),
+			Offset: uint(e.offset),
+		},
+		PackID: idx.packs[e.packIndex],
+	}
 }
 
 // Lookup queries the index for the blob ID and returns a restic.PackedBlob.
@@ -114,29 +179,11 @@ func (idx *Index) Lookup(id restic.ID, tpe restic.BlobType) (blobs []restic.Pack
 	idx.m.Lock()
 	defer idx.m.Unlock()
 
-	h := restic.BlobHandle{ID: id, Type: tpe}
+	idx.byType[tpe].foreachWithID(id, func(e *indexEntry) {
+		blobs = append(blobs, idx.toPackedBlob(e, tpe))
+	})
 
-	if packs, ok := idx.pack[h]; ok {
-		blobs = make([]restic.PackedBlob, 0, len(packs))
-
-		for _, p := range packs {
-			blob := restic.PackedBlob{
-				Blob: restic.Blob{
-					Type:   tpe,
-					Length: p.length,
-					ID:     id,
-					Offset: p.offset,
-				},
-				PackID: p.packID,
-			}
-
-			blobs = append(blobs, blob)
-		}
-
-		return blobs, true
-	}
-
-	return nil, false
+	return blobs, len(blobs) > 0
 }
 
 // ListPack returns a list of blobs contained in a pack.
@@ -144,20 +191,14 @@ func (idx *Index) ListPack(id restic.ID) (list []restic.PackedBlob) {
 	idx.m.Lock()
 	defer idx.m.Unlock()
 
-	for h, packList := range idx.pack {
-		for _, entry := range packList {
-			if entry.packID == id {
-				list = append(list, restic.PackedBlob{
-					Blob: restic.Blob{
-						ID:     h.ID,
-						Type:   h.Type,
-						Length: entry.length,
-						Offset: entry.offset,
-					},
-					PackID: entry.packID,
-				})
+	for typ := range idx.byType {
+		m := &idx.byType[typ]
+		m.foreach(func(e *indexEntry) bool {
+			if idx.packs[e.packIndex] == id {
+				list = append(list, idx.toPackedBlob(e, restic.BlobType(typ)))
 			}
-		}
+			return true
+		})
 	}
 
 	return list
@@ -168,21 +209,20 @@ func (idx *Index) Has(id restic.ID, tpe restic.BlobType) bool {
 	idx.m.Lock()
 	defer idx.m.Unlock()
 
-	h := restic.BlobHandle{ID: id, Type: tpe}
-
-	_, ok := idx.pack[h]
-	return ok
+	return idx.byType[tpe].get(id) != nil
 }
 
 // LookupSize returns the length of the plaintext content of the blob with the
 // given id.
 func (idx *Index) LookupSize(id restic.ID, tpe restic.BlobType) (plaintextLength uint, found bool) {
-	blobs, found := idx.Lookup(id, tpe)
-	if !found {
-		return 0, found
-	}
+	idx.m.Lock()
+	defer idx.m.Unlock()
 
-	return uint(restic.PlaintextLength(int(blobs[0].Length))), true
+	e := idx.byType[tpe].get(id)
+	if e == nil {
+		return 0, false
+	}
+	return uint(restic.PlaintextLength(int(e.length))), true
 }
 
 // Supersedes returns the list of indexes this index supersedes, if any.
@@ -218,22 +258,16 @@ func (idx *Index) Each(ctx context.Context) <-chan restic.PackedBlob {
 			close(ch)
 		}()
 
-		for h, packs := range idx.pack {
-			for _, blob := range packs {
+		for typ := range idx.byType {
+			m := &idx.byType[typ]
+			m.foreach(func(e *indexEntry) bool {
 				select {
 				case <-ctx.Done():
-					return
-				case ch <- restic.PackedBlob{
-					Blob: restic.Blob{
-						ID:     h.ID,
-						Type:   h.Type,
-						Offset: blob.offset,
-						Length: blob.length,
-					},
-					PackID: blob.packID,
-				}:
+					return false
+				case ch <- idx.toPackedBlob(e, restic.BlobType(typ)):
+					return true
 				}
-			}
+			})
 		}
 	}()
 
@@ -246,10 +280,8 @@ func (idx *Index) Packs() restic.IDSet {
 	defer idx.m.Unlock()
 
 	packs := restic.NewIDSet()
-	for _, list := range idx.pack {
-		for _, entry := range list {
-			packs.Insert(entry.packID)
-		}
+	for _, packID := range idx.packs {
+		packs.Insert(packID)
 	}
 
 	return packs
@@ -261,15 +293,7 @@ func (idx *Index) Count(t restic.BlobType) (n uint) {
 	idx.m.Lock()
 	defer idx.m.Unlock()
 
-	for h, list := range idx.pack {
-		if h.Type != t {
-			continue
-		}
-
-		n += uint(len(list))
-	}
-
-	return
+	return idx.byType[t].len()
 }
 
 type packJSON struct {
@@ -289,25 +313,21 @@ func (idx *Index) generatePackList() ([]*packJSON, error) {
 	list := []*packJSON{}
 	packs := make(map[restic.ID]*packJSON)
 
-	for h, packedBlobs := range idx.pack {
-		for _, blob := range packedBlobs {
-			if blob.packID.IsNull() {
+	for typ := range idx.byType {
+		m := &idx.byType[typ]
+		m.foreach(func(e *indexEntry) bool {
+			packID := idx.packs[e.packIndex]
+			if packID.IsNull() {
 				panic("null pack id")
 			}
 
-			debug.Log("handle blob %v", h)
-
-			if blob.packID.IsNull() {
-				debug.Log("blob %v has no packID! (offset %v, length %v)",
-					h, blob.offset, blob.length)
-				return nil, errors.Errorf("unable to serialize index: pack for blob %v hasn't been written yet", h)
-			}
+			debug.Log("handle blob %v", e.id)
 
 			// see if pack is already in map
-			p, ok := packs[blob.packID]
+			p, ok := packs[packID]
 			if !ok {
 				// else create new pack
-				p = &packJSON{ID: blob.packID}
+				p = &packJSON{ID: packID}
 
 				// and append it to the list and map
 				list = append(list, p)
@@ -316,12 +336,14 @@ func (idx *Index) generatePackList() ([]*packJSON, error) {
 
 			// add blob
 			p.Blobs = append(p.Blobs, blobJSON{
-				ID:     h.ID,
-				Type:   h.Type,
-				Offset: blob.offset,
-				Length: blob.length,
+				ID:     e.id,
+				Type:   restic.BlobType(typ),
+				Offset: uint(e.offset),
+				Length: uint(e.length),
 			})
-		}
+
+			return true
+		})
 	}
 
 	debug.Log("done")
@@ -360,15 +382,15 @@ func (idx *Index) encode(w io.Writer) error {
 	return enc.Encode(idxJSON)
 }
 
-// Finalize sets the index to final and writes the JSON serialization to w.
-func (idx *Index) Finalize(w io.Writer) error {
-	debug.Log("encoding index")
+// Finalize sets the index to final.
+func (idx *Index) Finalize() {
+	debug.Log("finalizing index")
 	idx.m.Lock()
 	defer idx.m.Unlock()
 
 	idx.final = true
-
-	return idx.encode(w)
+	// clear packIDToIndex as no more elements will be added
+	idx.packIDToIndex = nil
 }
 
 // ID returns the ID of the index, if available. If the index is not yet
@@ -473,16 +495,14 @@ func DecodeIndex(buf []byte) (idx *Index, err error) {
 	idx = NewIndex()
 	for _, pack := range idxJSON.Packs {
 		var data, tree bool
+		packID := idx.addToPacks(pack.ID)
 
 		for _, blob := range pack.Blobs {
-			idx.store(restic.PackedBlob{
-				Blob: restic.Blob{
-					Type:   blob.Type,
-					ID:     blob.ID,
-					Offset: blob.Offset,
-					Length: blob.Length,
-				},
-				PackID: pack.ID,
+			idx.store(packID, restic.Blob{
+				Type:   blob.Type,
+				ID:     blob.ID,
+				Offset: blob.Offset,
+				Length: blob.Length,
 			})
 
 			switch blob.Type {
@@ -518,16 +538,14 @@ func DecodeOldIndex(buf []byte) (idx *Index, err error) {
 	idx = NewIndex()
 	for _, pack := range list {
 		var data, tree bool
+		packID := idx.addToPacks(pack.ID)
 
 		for _, blob := range pack.Blobs {
-			idx.store(restic.PackedBlob{
-				Blob: restic.Blob{
-					Type:   blob.Type,
-					ID:     blob.ID,
-					Offset: blob.Offset,
-					Length: blob.Length,
-				},
-				PackID: pack.ID,
+			idx.store(packID, restic.Blob{
+				Type:   blob.Type,
+				ID:     blob.ID,
+				Offset: blob.Offset,
+				Length: blob.Length,
 			})
 
 			switch blob.Type {
