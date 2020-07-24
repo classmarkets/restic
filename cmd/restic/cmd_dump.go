@@ -48,6 +48,8 @@ type DumpOptions struct {
 
 var dumpOptions DumpOptions
 
+var dumpWriter io.Writer = os.Stdout
+
 func init() {
 	cmdRoot.AddCommand(cmdDump)
 
@@ -58,18 +60,19 @@ func init() {
 }
 
 func splitPath(p string) []string {
-	d, f := path.Split(p)
-	if d == "" {
-		return []string{f}
+	if p == "/" {
+		return []string{"/"}
 	}
-	if d == "/" {
-		return []string{d}
+
+	segments := strings.Split(p, "/")
+	if strings.HasPrefix(p, "/") {
+		segments[0] = "/"
 	}
-	s := splitPath(path.Clean(d))
-	return append(s, f)
+
+	return segments
 }
 
-func printFromTree(ctx context.Context, tree *restic.Tree, repo restic.Repository, prefix string, pathComponents []string, pathToPrint string) error {
+func printFromTree(ctx context.Context, tree *restic.Tree, repo restic.Repository, prefix string, pathComponents []string, leadingNodes *[]*restic.Node) error {
 
 	if tree == nil {
 		return fmt.Errorf("called with a nil tree")
@@ -84,18 +87,18 @@ func printFromTree(ctx context.Context, tree *restic.Tree, repo restic.Repositor
 	item := filepath.Join(prefix, pathComponents[0])
 	for _, node := range tree.Nodes {
 		if node.Name == pathComponents[0] || pathComponents[0] == "/" {
+			*leadingNodes = append(*leadingNodes, node)
 			switch {
 			case l == 1 && node.Type == "file":
-				return getNodeData(ctx, os.Stdout, repo, node)
+				return getNodeData(ctx, dumpWriter, repo, node)
 			case l > 1 && node.Type == "dir":
 				subtree, err := repo.LoadTree(ctx, *node.Subtree)
 				if err != nil {
 					return errors.Wrapf(err, "cannot load subtree for %q", item)
 				}
-				return printFromTree(ctx, subtree, repo, item, pathComponents[1:], pathToPrint)
+				return printFromTree(ctx, subtree, repo, item, pathComponents[1:], leadingNodes)
 			case node.Type == "dir":
-				node.Path = pathToPrint
-				return tarTree(ctx, repo, node, pathToPrint)
+				return tarTree(ctx, repo, *node.Subtree, *leadingNodes)
 			case l > 1:
 				return fmt.Errorf("%q should be a dir, but is a %q", item, node.Type)
 			case node.Type != "file":
@@ -117,8 +120,6 @@ func runDump(opts DumpOptions, gopts GlobalOptions, args []string) error {
 	pathToPrint := args[1]
 
 	debug.Log("dump file %q from %q", pathToPrint, snapshotIDString)
-
-	splittedPath := splitPath(path.Clean(pathToPrint))
 
 	repo, err := OpenRepository(gopts)
 	if err != nil {
@@ -157,12 +158,16 @@ func runDump(opts DumpOptions, gopts GlobalOptions, args []string) error {
 		Exitf(2, "loading snapshot %q failed: %v", snapshotIDString, err)
 	}
 
+	if pathToPrint == "/" {
+		return tarTree(ctx, repo, *sn.Tree, nil)
+	}
+
 	tree, err := repo.LoadTree(ctx, *sn.Tree)
 	if err != nil {
 		Exitf(2, "loading tree for snapshot %q failed: %v", snapshotIDString, err)
 	}
 
-	err = printFromTree(ctx, tree, repo, "", splittedPath, pathToPrint)
+	err = printFromTree(ctx, tree, repo, "", splitPath(path.Clean(pathToPrint)), new([]*restic.Node))
 	if err != nil {
 		Exitf(2, "cannot dump file: %v", err)
 	}
@@ -190,29 +195,26 @@ func getNodeData(ctx context.Context, output io.Writer, repo restic.Repository, 
 	return nil
 }
 
-func tarTree(ctx context.Context, repo restic.Repository, rootNode *restic.Node, rootPath string) error {
+func tarTree(ctx context.Context, repo restic.Repository, id restic.ID, leadingNodes []*restic.Node) error {
 
-	if stdoutIsTerminal() {
+	if dumpWriter == os.Stdout && stdoutIsTerminal() {
 		return fmt.Errorf("stdout is the terminal, please redirect output")
 	}
 
-	tw := tar.NewWriter(os.Stdout)
+	tw := tar.NewWriter(dumpWriter)
 	defer tw.Close()
 
-	// If we want to dump "/" we'll need to add the name of the first node, too
-	// as it would get lost otherwise.
-	if rootNode.Path == "/" {
-		rootNode.Path = path.Join(rootNode.Path, rootNode.Name)
-		rootPath = rootNode.Path
+	rootPath := ""
+
+	for _, node := range leadingNodes {
+		rootPath = filepath.Join(rootPath, node.Name)
+		node.Path = rootPath
+		if err := tarNode(ctx, tw, node, repo); err != nil {
+			return err
+		}
 	}
 
-	// we know that rootNode is a folder and walker.Walk will already process
-	// the next node, so we have to tar this one first, too
-	if err := tarNode(ctx, tw, rootNode, repo); err != nil {
-		return err
-	}
-
-	err := walker.Walk(ctx, repo, *rootNode.Subtree, nil, func(_ restic.ID, nodepath string, node *restic.Node, err error) (bool, error) {
+	err := walker.Walk(ctx, repo, id, nil, func(_ restic.ID, nodepath string, node *restic.Node, err error) (bool, error) {
 		if err != nil {
 			return false, err
 		}
@@ -220,7 +222,9 @@ func tarTree(ctx context.Context, repo restic.Repository, rootNode *restic.Node,
 			return false, nil
 		}
 
-		node.Path = path.Join(rootPath, nodepath)
+		// Leading slashes are dangerous in tar archive. The GNU tool will
+		// strip them, but we better not rely on that.
+		node.Path = strings.TrimLeft(filepath.Join(rootPath, nodepath), "/")
 
 		if node.Type == "file" || node.Type == "symlink" || node.Type == "dir" {
 			err := tarNode(ctx, tw, node, repo)
@@ -236,26 +240,44 @@ func tarTree(ctx context.Context, repo restic.Repository, rootNode *restic.Node,
 }
 
 func tarNode(ctx context.Context, tw *tar.Writer, node *restic.Node, repo restic.Repository) error {
-
 	header := &tar.Header{
-		Name:       node.Path,
-		Size:       int64(node.Size),
-		Mode:       int64(node.Mode),
+		Name: node.Path,
+		Size: int64(node.Size),
+		// Mode fits 21 bits in PAX format (7 octal digits). All higher bits in
+		// node.Mode are related to the node type and dealt with below.
+		//
+		// https://golang.org/pkg/archive/tar/#Format
+		Mode:       int64(node.Mode & 07777777),
 		Uid:        int(node.UID),
 		Gid:        int(node.GID),
 		ModTime:    node.ModTime,
 		AccessTime: node.AccessTime,
 		ChangeTime: node.ChangeTime,
+
+		Format:     tar.FormatPAX,
 		PAXRecords: parseXattrs(node.ExtendedAttributes),
 	}
 
-	if node.Type == "symlink" {
+	switch node.Type {
+	case "dir":
+		header.Typeflag = tar.TypeDir
+	case "file":
+		header.Typeflag = tar.TypeReg
+	case "symlink":
 		header.Typeflag = tar.TypeSymlink
 		header.Linkname = node.LinkTarget
-	}
-
-	if node.Type == "dir" {
-		header.Typeflag = tar.TypeDir
+	case "dev":
+		header.Typeflag = tar.TypeBlock
+		header.Devmajor = int64((node.Device >> 8) & 0xff)
+		header.Devminor = int64(node.Device & 0xff)
+	case "chardev":
+		header.Typeflag = tar.TypeChar
+		header.Devmajor = int64((node.Device >> 8) & 0xff)
+		header.Devminor = int64(node.Device & 0xff)
+	case "fifo":
+		header.Typeflag = tar.TypeFifo
+	case "socket":
+		// TODO: skip?
 	}
 
 	err := tw.WriteHeader(header)

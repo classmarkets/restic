@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -1279,4 +1280,175 @@ func TestQuietBackup(t *testing.T) {
 		"expected two snapshots, got %v", snapshotIDs)
 
 	testRunCheck(t, env.gopts)
+}
+
+func TestDump_File(t *testing.T) {
+	cases := []struct {
+		filename     string
+		backupTarget string
+		dumpTarget   string
+	}{
+		{"testfile", ".", "testfile"},
+		{"dir/testfile", ".", "dir/testfile"},
+		{"dir/testfile", "dir", "dir/testfile"},
+	}
+
+	buf := &bytes.Buffer{}
+	dumpWriter = buf
+	defer func() { dumpWriter = os.Stdout }()
+
+	for _, tc := range cases {
+		name := fmt.Sprintf("%s-%s-%s", tc.filename, tc.backupTarget, tc.dumpTarget)
+		t.Run(name, func(t *testing.T) {
+			env, cleanup := withTestEnvironment(t)
+			defer cleanup()
+
+			testRunInit(t, env.gopts)
+
+			testfile := filepath.Join(env.testdata, tc.filename)
+
+			rtest.OK(t, os.MkdirAll(filepath.Dir(testfile), 0755))
+			rtest.OK(t, ioutil.WriteFile(testfile, []byte("hello world"), 0644))
+
+			opts := BackupOptions{}
+			testRunBackup(t, env.testdata, []string{tc.backupTarget}, opts, env.gopts)
+
+			buf.Reset()
+			rtest.OK(t, runDump(DumpOptions{}, env.gopts, []string{"latest", tc.dumpTarget}))
+
+			rtest.Equals(t, "hello world", buf.String())
+		})
+	}
+}
+
+func TestDump_Tar(t *testing.T) {
+	buf := &bytes.Buffer{}
+	dumpWriter = buf
+	defer func() { dumpWriter = os.Stdout }()
+
+	type file struct {
+		name string
+		size uint
+		mode os.FileMode
+	}
+	testFiles := []file{
+		{name: "A/", mode: 0755},
+		{name: "A/B/", mode: 0700},
+		{name: "A/B/c", mode: 0644, size: 100},
+		{name: "A/B/d", mode: 0644, size: 200},
+		{name: "A/e", mode: 0755, size: 300},
+		{name: "F/", mode: 0755},
+	}
+
+	// Which files we expect in the tar archive for a given dumpTarget. These
+	// are exhaustive lists; any additional files are an error.
+	cases := []struct {
+		dumpTarget string
+		wantFiles  []string
+	}{
+		{"/", []string{
+			"A/",
+			"A/B/",
+			"A/B/c",
+			"A/B/d",
+			"A/e",
+			"F/",
+		}},
+		{"A", []string{
+			"A/",
+			"A/B/",
+			"A/B/c",
+			"A/B/d",
+			"A/e",
+		}},
+		{"A/B", []string{
+			"A/",
+			"A/B/",
+			"A/B/c",
+			"A/B/d",
+		}},
+		{"F", []string{
+			"F/",
+		}},
+	}
+
+	env, cleanup := withTestEnvironment(t)
+	defer cleanup()
+
+	testRunInit(t, env.gopts)
+
+	fileIndex := make(map[string]file)
+	for _, testFile := range testFiles {
+		fileIndex[testFile.name] = testFile
+
+		p := filepath.Join(env.testdata, testFile.name)
+		if strings.HasSuffix(testFile.name, "/") {
+			rtest.OK(t, os.Mkdir(p, testFile.mode))
+		} else {
+			rtest.OK(t, appendRandomData(p, testFile.size))
+			rtest.OK(t, os.Chmod(p, testFile.mode))
+		}
+	}
+
+	opts := BackupOptions{}
+	testRunBackup(t, env.testdata, []string{"."}, opts, env.gopts)
+
+	for _, tc := range cases {
+		t.Run(tc.dumpTarget, func(t *testing.T) {
+			buf.Reset()
+			rtest.OK(t, runDump(DumpOptions{}, env.gopts, []string{"latest", tc.dumpTarget}))
+
+			tr := tar.NewReader(bytes.NewReader(buf.Bytes()))
+
+			for _, fileName := range tc.wantFiles {
+				wantFile, ok := fileIndex[fileName]
+				if !ok {
+					t.Fatalf("Expecting file that doesn't exist: %s", fileName)
+				}
+
+				h, err := tr.Next()
+				if err != nil {
+					t.Errorf("cannot read %s: %v", wantFile.name, err)
+					continue
+				}
+
+				wantName := strings.TrimRight(wantFile.name, "/")
+				wantMode := os.FileMode(wantFile.mode & 07777777) // low 21 bits, the maximum size supported by PAX
+				wantSize := int64(wantFile.size)
+
+				var wantType byte = tar.TypeReg
+				if strings.HasSuffix(wantFile.name, "/") {
+					wantType = tar.TypeDir
+				}
+
+				gotMode := os.FileMode(h.Mode)
+
+				if wantName != h.Name || wantMode != gotMode || wantSize != h.Size {
+					t.Fatalf("unexpected filename, mode, or size:\n\twant: %s (%v) %d B\n\tgot:  %s (%v) %d B",
+						wantName, wantMode, wantSize,
+						h.Name, gotMode, h.Size,
+					)
+				}
+				if h.Typeflag != wantType {
+					t.Fatalf("type of %s is %c, want %c", h.Name, h.Mode, tar.TypeDir)
+				}
+
+				t.Logf("OK:\n\twant: %s (%v) %d B\n\tgot:  %s (%v) %d B",
+					wantName, wantMode, wantFile.size,
+					h.Name, gotMode, h.Size,
+				)
+			}
+
+			for {
+				switch h, err := tr.Next(); err {
+				case io.EOF: // expected
+					return
+				case nil:
+					t.Errorf("tar: extraneous files in archive: %q", h.Name)
+				default:
+					t.Fatalf("tar: unexpected error: %v", err)
+				}
+			}
+		})
+	}
 }
