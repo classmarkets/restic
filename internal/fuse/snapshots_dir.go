@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/restic"
 
 	"golang.org/x/net/context"
 

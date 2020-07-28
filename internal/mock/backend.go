@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/restic"
 )
 
 // Backend implements a mock backend.

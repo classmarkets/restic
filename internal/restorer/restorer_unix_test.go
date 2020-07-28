@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/restic/restic/internal/repository"
-	"github.com/restic/restic/internal/restic"
-	rtest "github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/repository"
+	"github.com/classmarkets/restic/internal/restic"
+	rtest "github.com/classmarkets/restic/internal/test"
 )
 
 func TestRestorerRestoreEmptyHardlinkedFileds(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/options"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/options"
 )
 
 // Config contains basic configuration needed to specify swift location for a swift server

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/restic/restic/internal/crypto"
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/crypto"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/restic"
 )
 
 func (c *Cache) filename(h restic.Handle) string {

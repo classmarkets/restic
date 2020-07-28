@@ -1,6 +1,6 @@
 package restic
 
-import "github.com/restic/restic/internal/crypto"
+import "github.com/classmarkets/restic/internal/crypto"
 
 // NewBlobBuffer returns a buffer that is large enough to hold a blob of size
 // plaintext bytes, including the crypto overhead.

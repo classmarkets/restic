@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/restic/restic/internal/repository"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/repository"
+	"github.com/classmarkets/restic/internal/restic"
 )
 
 func loadIDSet(t testing.TB, filename string) restic.BlobSet {

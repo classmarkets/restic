@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/restic"
 	"github.com/spf13/cobra"
 )
 

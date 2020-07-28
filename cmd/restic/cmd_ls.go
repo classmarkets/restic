@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/walker"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/walker"
 )
 
 var cmdLs = &cobra.Command{

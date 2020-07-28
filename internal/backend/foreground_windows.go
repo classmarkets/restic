@@ -3,7 +3,7 @@ package backend
 import (
 	"os/exec"
 
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/errors"
 )
 
 // StartForeground runs cmd in the foreground, by temporarily switching to the

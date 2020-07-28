@@ -5,7 +5,7 @@ package fuse
 import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/restic"
 	"golang.org/x/net/context"
 )
 

@@ -5,12 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/restic/restic/internal/crypto"
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/crypto"
+	"github.com/classmarkets/restic/internal/errors"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/restic"
 )
 
 // Restorer is used to restore a snapshot to a directory.

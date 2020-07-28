@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/restic/chunker"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/test"
 	tomb "gopkg.in/tomb.v2"
 )
 

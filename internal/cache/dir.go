@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/fs"
 )
 
 // DefaultDir returns $RESTIC_CACHE_DIR, or the default cache directory

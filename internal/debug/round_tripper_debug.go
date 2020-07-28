@@ -10,7 +10,7 @@ import (
 	"net/http/httputil"
 	"os"
 
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/errors"
 )
 
 type eofDetectRoundTripper struct {

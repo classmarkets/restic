@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/restic/restic/internal/checker"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/repository"
-	"github.com/restic/restic/internal/restic"
-	restictest "github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/checker"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/repository"
+	"github.com/classmarkets/restic/internal/restic"
+	restictest "github.com/classmarkets/restic/internal/test"
 	tomb "gopkg.in/tomb.v2"
 )
 

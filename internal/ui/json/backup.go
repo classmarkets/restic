@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/restic/restic/internal/archiver"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/ui"
-	"github.com/restic/restic/internal/ui/termstatus"
+	"github.com/classmarkets/restic/internal/archiver"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/ui"
+	"github.com/classmarkets/restic/internal/ui/termstatus"
 )
 
 type counter struct {

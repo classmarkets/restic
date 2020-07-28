@@ -1,4 +1,4 @@
-module github.com/restic/restic
+module github.com/classmarkets/restic
 
 require (
 	bazil.org/fuse v0.0.0-20191225072544-27e78e7d88df

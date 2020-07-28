@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/restic/restic/internal/cache"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/ui/table"
+	"github.com/classmarkets/restic/internal/cache"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/ui/table"
 	"github.com/spf13/cobra"
 )
 

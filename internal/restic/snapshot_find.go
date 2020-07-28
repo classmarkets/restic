@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/errors"
 )
 
 // ErrNoSnapshotFound is returned when no snapshot for the given criteria could be found.

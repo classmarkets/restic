@@ -17,16 +17,16 @@ import (
 	"github.com/spf13/cobra"
 	tomb "gopkg.in/tomb.v2"
 
-	"github.com/restic/restic/internal/archiver"
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/repository"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/textfile"
-	"github.com/restic/restic/internal/ui"
-	"github.com/restic/restic/internal/ui/json"
-	"github.com/restic/restic/internal/ui/termstatus"
+	"github.com/classmarkets/restic/internal/archiver"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/repository"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/textfile"
+	"github.com/classmarkets/restic/internal/ui"
+	"github.com/classmarkets/restic/internal/ui/json"
+	"github.com/classmarkets/restic/internal/ui/termstatus"
 )
 
 var cmdBackup = &cobra.Command{

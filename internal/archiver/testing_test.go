@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/repository"
-	restictest "github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/repository"
+	restictest "github.com/classmarkets/restic/internal/test"
 )
 
 // MockT passes through all logging functions from T, but catches Fail(),

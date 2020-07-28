@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
 )
 
 // TransportOptions collects various options which can be set for an HTTP based

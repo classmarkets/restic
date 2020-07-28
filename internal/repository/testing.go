@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/restic/restic/internal/backend/local"
-	"github.com/restic/restic/internal/backend/mem"
-	"github.com/restic/restic/internal/crypto"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/backend/local"
+	"github.com/classmarkets/restic/internal/backend/mem"
+	"github.com/classmarkets/restic/internal/crypto"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/test"
 
 	"github.com/restic/chunker"
 )

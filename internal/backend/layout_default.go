@@ -3,7 +3,7 @@ package backend
 import (
 	"encoding/hex"
 
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/restic"
 )
 
 // DefaultLayout implements the default layout for local and sftp backends, as

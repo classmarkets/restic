@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/restic/restic/internal/restic"
-	rtest "github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/restic"
+	rtest "github.com/classmarkets/restic/internal/test"
 )
 
 func TestIndexMapBasic(t *testing.T) {

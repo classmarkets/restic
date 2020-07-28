@@ -13,11 +13,11 @@ import (
 
 	"golang.org/x/net/context/ctxhttp"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/restic"
 
-	"github.com/restic/restic/internal/backend"
+	"github.com/classmarkets/restic/internal/backend"
 )
 
 // make sure the rest backend implements restic.Backend

@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/restic"
 
-	"github.com/restic/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/debug"
 )
 
 // In large repositories, millions of blobs are stored in the repository

@@ -4,7 +4,7 @@ import (
 	"io/ioutil"
 	"testing"
 
-	rtest "github.com/restic/restic/internal/test"
+	rtest "github.com/classmarkets/restic/internal/test"
 )
 
 func TestFilesWriterBasic(t *testing.T) {

@@ -11,9 +11,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/restic/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/fs"
 
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/errors"
 )
 
 var opts struct {

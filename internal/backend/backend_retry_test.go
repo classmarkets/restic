@@ -7,10 +7,10 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/mock"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/mock"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/test"
 )
 
 func TestBackendSaveRetry(t *testing.T) {

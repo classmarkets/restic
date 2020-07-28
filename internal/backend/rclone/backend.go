@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/restic/restic/internal/backend"
-	"github.com/restic/restic/internal/backend/rest"
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/limiter"
+	"github.com/classmarkets/restic/internal/backend"
+	"github.com/classmarkets/restic/internal/backend/rest"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/limiter"
 	"golang.org/x/net/context/ctxhttp"
 	"golang.org/x/net/http2"
 )

@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/restic/restic/internal/backend"
-	"github.com/restic/restic/internal/backend/swift"
-	"github.com/restic/restic/internal/backend/test"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/restic"
-	rtest "github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/backend"
+	"github.com/classmarkets/restic/internal/backend/swift"
+	"github.com/classmarkets/restic/internal/backend/test"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/restic"
+	rtest "github.com/classmarkets/restic/internal/test"
 )
 
 func newSwiftTestSuite(t testing.TB) *test.Suite {

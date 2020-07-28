@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/test"
 )
 
 func generateRandomFiles(t testing.TB, tpe restic.FileType, c *Cache) restic.IDSet {

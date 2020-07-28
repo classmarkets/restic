@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/restic/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/fs"
 )
 
 // Scanner  traverses the targets and calls the function Result with cumulated

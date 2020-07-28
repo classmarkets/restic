@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/user"
 
-	"github.com/restic/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/debug"
 )
 
 // uidGidInt always returns 0 on Windows, since uid isn't numbers

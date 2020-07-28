@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/restic/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/fs"
 )
 
 func writeTempfile(t testing.TB, data []byte) (fs.File, func()) {

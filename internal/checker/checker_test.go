@@ -10,11 +10,11 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/restic/restic/internal/archiver"
-	"github.com/restic/restic/internal/checker"
-	"github.com/restic/restic/internal/repository"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/archiver"
+	"github.com/classmarkets/restic/internal/checker"
+	"github.com/classmarkets/restic/internal/repository"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/test"
 )
 
 var checkerTestData = filepath.Join("testdata", "checker-test-repo.tar.gz")

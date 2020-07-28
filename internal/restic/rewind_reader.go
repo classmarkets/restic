@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/restic/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/errors"
 )
 
 // RewindReader allows resetting the Reader to the beginning of the data.

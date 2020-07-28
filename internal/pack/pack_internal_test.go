@@ -6,8 +6,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/restic/restic/internal/crypto"
-	rtest "github.com/restic/restic/internal/test"
+	"github.com/classmarkets/restic/internal/crypto"
+	rtest "github.com/classmarkets/restic/internal/test"
 )
 
 type countingReaderAt struct {

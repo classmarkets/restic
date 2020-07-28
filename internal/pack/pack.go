@@ -7,11 +7,11 @@ import (
 	"io"
 	"sync"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/restic"
 
-	"github.com/restic/restic/internal/crypto"
+	"github.com/classmarkets/restic/internal/crypto"
 )
 
 // Packer is used to create a new Pack.

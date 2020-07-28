@@ -3,8 +3,8 @@ package rclone
 import (
 	"strings"
 
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/options"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/options"
 )
 
 // Config contains all configuration necessary to start rclone.

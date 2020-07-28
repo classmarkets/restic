@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/filter"
-	"github.com/restic/restic/internal/fs"
-	"github.com/restic/restic/internal/repository"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/filter"
+	"github.com/classmarkets/restic/internal/fs"
+	"github.com/classmarkets/restic/internal/repository"
 )
 
 type rejectionCache struct {

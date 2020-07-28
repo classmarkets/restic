@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/restic/restic/internal/ui/termstatus"
+import "github.com/classmarkets/restic/internal/ui/termstatus"
 
 // Message reports progress with messages of different verbosity.
 type Message struct {

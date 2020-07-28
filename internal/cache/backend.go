@@ -5,8 +5,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/restic"
 )
 
 // Backend wraps a restic.Backend and adds a cache.

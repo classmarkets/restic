@@ -3,11 +3,11 @@ package main
 import (
 	"strings"
 
-	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
-	"github.com/restic/restic/internal/filter"
-	"github.com/restic/restic/internal/restic"
-	"github.com/restic/restic/internal/restorer"
+	"github.com/classmarkets/restic/internal/debug"
+	"github.com/classmarkets/restic/internal/errors"
+	"github.com/classmarkets/restic/internal/filter"
+	"github.com/classmarkets/restic/internal/restic"
+	"github.com/classmarkets/restic/internal/restorer"
 
 	"github.com/spf13/cobra"
 )
